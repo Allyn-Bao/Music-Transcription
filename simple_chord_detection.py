@@ -1,3 +1,8 @@
+"""
+This File is depreciated as a better approach is found, although some functions might still be helpful
+check chord_detection_audio_preprocessing.py
+"""
+
 from pydub import AudioSegment
 import librosa
 import os
@@ -85,7 +90,7 @@ def bar_interval_from_bpm(bpm):
     :param bpm: beats per minutes
     :return: time interval in seconds
     """
-    bar_interval = 4 * 60 / bpm     # 4 beats per minute
+    bar_interval = 4 * 60 / bpm
     return bar_interval
 
 
