@@ -6,6 +6,18 @@ from torch.utils.data import DataLoader, TensorDataset
 import pandas as pd
 import os
 
+
+'''
+Check for Metal Support
+'''
+# Check if MPS (Metal Performance Shaders) is available
+device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
+print(f'Using device: {device}')
+
+
+'''
+Loading data
+'''
 data_dir = "train_data"
 train_X = pd.read_csv(os.path.join(data_dir, "train_x.csv"))
 train_Y = pd.read_csv(os.path.join(data_dir, "train_y.csv"))
@@ -20,19 +32,21 @@ val_X = val_X.drop(val_X.columns[0], axis=1)
 test_X = test_X.drop(test_X.columns[0], axis=1)
 
 # Convert DataFrames to PyTorch Tensors
-train_X_tensor = torch.tensor(train_X.values, dtype=torch.float32)
-train_Y_tensor = torch.tensor(train_Y['Y_Encoded'].values, dtype=torch.long)
-val_X_tensor = torch.tensor(val_X.values, dtype=torch.float32)
-val_Y_tensor = torch.tensor(val_Y['Y_Encoded'].values, dtype=torch.long)
-test_X_tensor = torch.tensor(test_X.values, dtype=torch.float32)
-test_Y_tensor = torch.tensor(test_Y['Y_Encoded'].values, dtype=torch.long)
+train_X_tensor = torch.tensor(train_X.values, dtype=torch.float32).to(device)
+train_Y_tensor = torch.tensor(train_Y['Y_Encoded'].values.astype(int), dtype=torch.long).to(device)
+val_X_tensor = torch.tensor(val_X.values, dtype=torch.float32).to(device)
+val_Y_tensor = torch.tensor(val_Y['Y_Encoded'].values.astype(int), dtype=torch.long).to(device)
+test_X_tensor = torch.tensor(test_X.values, dtype=torch.float32).to(device)
+test_Y_tensor = torch.tensor(test_Y['Y_Encoded'].values.astype(int), dtype=torch.long).to(device)
 
 # Create TensorDataset and DataLoader for batching
 train_dataset = TensorDataset(train_X_tensor, train_Y_tensor)
 val_dataset = TensorDataset(val_X_tensor, val_Y_tensor)
+test_dataset = TensorDataset(test_X_tensor, test_Y_tensor)
 
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=False)
 val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
 """
 A simple Neural Network Model
@@ -43,19 +57,26 @@ A simple Neural Network Model
 class SimpleNN(nn.Module):
     def __init__(self, input_size, num_classes):
         super(SimpleNN, self).__init__()
-        self.fc1 = nn.Linear(input_size, 64)
-        self.fc2 = nn.Linear(64, num_classes)
+        self.fc1 = nn.Linear(input_size, 128)
+        self.fc2 = nn.Linear(128, 256)
+        self.fc3 = nn.Linear(256, 256)
+        self.fc4 = nn.Linear(256, num_classes)
 
     def forward(self, x):
-        x = torch.relu(self.fc1(x))
+        x = self.fc1(x)
+        x = torch.relu(x)
         x = self.fc2(x)
+        x = torch.relu(x)
+        x = self.fc3(x)
+        x = torch.relu(x)
+        x = self.fc4(x)
         return x
 
 
 # Model, loss function, and optimizer
 input_size = train_X.shape[1]  # Number of input features
 num_classes = len(train_Y['Y_Encoded'].unique())  # Number of output classes
-model = SimpleNN(input_size, num_classes)
+model = SimpleNN(input_size, num_classes).to(device)
 
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
@@ -71,6 +92,10 @@ for epoch in range(num_epochs):
     running_loss = 0.0
 
     for inputs, labels in train_loader:
+
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+
         # Zero the parameter gradients
         optimizer.zero_grad()
 
@@ -95,6 +120,10 @@ for epoch in range(num_epochs):
     total = 0
     with torch.no_grad():
         for inputs, labels in val_loader:
+
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+
             outputs = model(inputs)
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
@@ -118,17 +147,14 @@ total = 0
 
 # Disable gradient calculation
 with torch.no_grad():
-    # Get predictions for the test dataset
-    test_outputs = model(test_X_tensor)
+    for inputs, labels in test_loader:
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+        outputs = model(inputs)
+        _, predicted = torch.max(outputs, 1)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
 
-    # Get the predicted class (the one with the maximum score)
-    _, predicted = torch.max(test_outputs.data, 1)
-
-    # Calculate the total and correct predictions
-    total = test_Y_tensor.size(0)
-    correct = (predicted == test_Y_tensor).sum().item()
-
-    # Calculate accuracy
     accuracy = 100 * correct / total
     print(f'Accuracy of the model on the test data: {accuracy:.2f}%')
 
